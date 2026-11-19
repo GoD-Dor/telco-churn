@@ -202,3 +202,9 @@ reports/split_allocations.json
 # Customer-level inference examples
 reports/inference_sample.json
 reports/expected_predictions.json
+
+# MLflow local tracking storage
+mlflow.db
+mlflow.db-*
+mlartifacts/
+mlruns/

@@ -1,6 +1,12 @@
 
 from pathlib import Path
 import pandas as pd
+import mlflow
+import subprocess
+
+# Connect to local MLflow tracking server
+mlflow.set_tracking_uri("http://127.0.0.1:5000")
+mlflow.set_experiment("telco-churn-tp03")
 
 # Locate the dataset relative to the project root
 project_root = Path(__file__).resolve().parent.parent
@@ -258,48 +264,150 @@ from sklearn.metrics import (
 # Churn = Yes (1) is the positive class.
 # Fixed classification threshold: 0.5
 
+
+import hashlib
+import subprocess
+import mlflow
+
+# Data identity
+source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+
+# Git identity
+git_commit = subprocess.check_output(
+    ["git", "rev-parse", "HEAD"],
+    text=True
+).strip()
+
+git_dirty = bool(subprocess.check_output(
+    ["git", "status", "--porcelain"],
+    text=True
+).strip())
+
+# Record dataset metadata once
+train_dataset = mlflow.data.from_pandas(
+    train_df,
+    name="telco_train",
+    targets="Churn"
+)
+
+valid_dataset = mlflow.data.from_pandas(
+    valid_df,
+    name="telco_validation",
+    targets="Churn"
+)
+
 results = []
 fitted_models = {}
 
 for name, classifier in models.items():
 
-    # Fresh pipeline for each candidate
-    candidate = build_pipeline(classifier)
+    run_name = name.lower().replace(" ", "-")
 
-    # Measure training duration
-    start = time.perf_counter()
-    candidate.fit(X_train_full, y_train)
-    fit_time = time.perf_counter() - start
+    with mlflow.start_run(run_name=run_name) as run:
 
-    # Positive-class probabilities
-    positive_index = list(candidate.classes_).index(1)
-    y_scores = candidate.predict_proba(X_valid_full)[:, positive_index]
+        candidate = build_pipeline(classifier)
 
-    # Fixed threshold for binary predictions
-    y_pred = (y_scores >= 0.5).astype(int)
+        # Log parameters
+        params = {
+            "model_type": classifier.__class__.__name__,
+            "random_state_split": 42,
+            "threshold": 0.5
+        }
 
-    # Evaluation metrics
-    metrics = {
-        "model": name,
-        "average_precision": float(
-            average_precision_score(y_valid, y_scores)
-        ),
-        "accuracy": float(accuracy_score(y_valid, y_pred)),
-        "precision": float(
-            precision_score(y_valid, y_pred, zero_division=0)
-        ),
-        "recall": float(
-            recall_score(y_valid, y_pred, zero_division=0)
-        ),
-        "f1": float(f1_score(y_valid, y_pred, zero_division=0)),
-        "fit_seconds": round(fit_time, 4),
-        "confusion_matrix": confusion_matrix(
-            y_valid, y_pred, labels=[0, 1]
-        ).tolist()
-    }
+        for key, value in classifier.get_params().items():
+            if key in [
+                "max_depth",
+                "n_estimators",
+                "max_iter",
+                "random_state",
+                "C",
+                "strategy"
+            ]:
+                params[key] = str(value)
 
-    results.append(metrics)
-    fitted_models[name] = candidate
+        mlflow.log_params(params)
+
+        # Log provenance
+        mlflow.set_tags({
+            "git_commit": git_commit,
+            "git_dirty": str(git_dirty),
+            "data_sha256": source_hash
+        })
+
+        # Log datasets with separate contexts
+        mlflow.log_input(train_dataset, context="training")
+        mlflow.log_input(valid_dataset, context="validation")
+
+        # Train candidate
+        start = time.perf_counter()
+        candidate.fit(X_train_full, y_train)
+        fit_time = time.perf_counter() - start
+
+        # Validation predictions
+        positive_index = list(candidate.classes_).index(1)
+        y_scores = candidate.predict_proba(
+            X_valid_full
+        )[:, positive_index]
+
+        y_pred = (y_scores >= 0.5).astype(int)
+
+        metrics = {
+            "model": name,
+            "average_precision": float(
+                average_precision_score(y_valid, y_scores)
+            ),
+            "accuracy": float(accuracy_score(y_valid, y_pred)),
+            "precision": float(
+                precision_score(y_valid, y_pred, zero_division=0)
+            ),
+            "recall": float(
+                recall_score(y_valid, y_pred, zero_division=0)
+            ),
+            "f1": float(
+                f1_score(y_valid, y_pred, zero_division=0)
+            ),
+            "fit_seconds": round(fit_time, 4),
+            "confusion_matrix": confusion_matrix(
+                y_valid, y_pred, labels=[0, 1]
+            ).tolist()
+        }
+
+        # Record validation metrics in MLflow
+        mlflow.log_metrics({
+            "val_average_precision": metrics["average_precision"],
+            "val_accuracy": metrics["accuracy"],
+            "val_precision": metrics["precision"],
+            "val_recall": metrics["recall"],
+            "val_f1": metrics["f1"],
+            "fit_seconds": metrics["fit_seconds"]
+        })
+
+        # Record confusion matrix as an artifact
+        mlflow.log_dict({
+            "labels": [0, 1],
+            "matrix": metrics["confusion_matrix"]
+        }, "confusion_matrix.json")
+
+        # Record configuration and provenance
+        mlflow.log_dict({
+            "features": all_features,
+            "positive_class": "Churn=Yes (1)",
+            "threshold": 0.5,
+            "split_seed": 42,
+            "split_allocations": "reports/split_allocations.json",
+            "source_sha256": source_hash,
+            "git_commit": git_commit,
+            "git_dirty": git_dirty,
+            "selection_metric": "val_average_precision"
+        }, "provenance.json")
+
+        print(f"\nMLflow run: {name}")
+        print("Run ID:", run.info.run_id)
+        print("Validation AP:", metrics["average_precision"])
+
+        results.append(metrics)
+        fitted_models[name] = candidate
+
 
 # Sort models by Average Precision (highest first)
 results.sort(
@@ -528,3 +636,27 @@ print("Training IDs:", len(split_record["train_customer_ids"]))
 print("Validation IDs:", len(split_record["validation_customer_ids"]))
 print("Test IDs:", len(split_record["test_customer_ids"]))
 print("Saved to:", split_path)
+
+
+import mlflow.sklearn
+
+# Reuse the selected Random Forest run
+selected_run_id = "e61f74b0850f4701ba48f64f76836fc0"
+
+# Original, unencoded input features
+input_example = X_train_full.head(3).copy()
+
+# Log the complete fitted pipeline
+with mlflow.start_run(run_id=selected_run_id):
+
+    model_info = mlflow.sklearn.log_model(
+        sk_model=selected_pipeline,
+        name="churn_pipeline",
+        input_example=input_example,
+        serialization_format="cloudpickle"
+    )
+
+    print("\n=== MLFLOW MODEL LOGGED ===")
+    print("Source Run ID:", selected_run_id)
+    print("Model URI:", model_info.model_uri)
+

@@ -9,7 +9,7 @@
         "precision": 0.6643835616438356,
         "recall": 0.5187165775401069,
         "f1": 0.5825825825825826,
-        "fit_seconds": 0.2466,
+        "fit_seconds": 0.2583,
         "confusion_matrix": [
             [
                 937,
