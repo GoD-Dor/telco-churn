@@ -1,0 +1,78 @@
+[
+    {
+        "model": "Random Forest",
+        "average_precision": 0.6579005634370487,
+        "accuracy": 0.8026969481902059,
+        "precision": 0.6643835616438356,
+        "recall": 0.5187165775401069,
+        "f1": 0.5825825825825826,
+        "fit_seconds": 0.2466,
+        "confusion_matrix": [
+            [
+                937,
+                98
+            ],
+            [
+                180,
+                194
+            ]
+        ]
+    },
+    {
+        "model": "Logistic Regression",
+        "average_precision": 0.6474664703085159,
+        "accuracy": 0.8041163946061036,
+        "precision": 0.6644295302013423,
+        "recall": 0.5294117647058824,
+        "f1": 0.5892857142857143,
+        "fit_seconds": 0.0234,
+        "confusion_matrix": [
+            [
+                935,
+                100
+            ],
+            [
+                176,
+                198
+            ]
+        ]
+    },
+    {
+        "model": "Decision Tree",
+        "average_precision": 0.6033239843570091,
+        "accuracy": 0.8005677785663591,
+        "precision": 0.6302521008403361,
+        "recall": 0.6016042780748663,
+        "f1": 0.615595075239398,
+        "fit_seconds": 0.0152,
+        "confusion_matrix": [
+            [
+                903,
+                132
+            ],
+            [
+                149,
+                225
+            ]
+        ]
+    },
+    {
+        "model": "Majority Baseline",
+        "average_precision": 0.2654364797728886,
+        "accuracy": 0.7345635202271115,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "fit_seconds": 0.0096,
+        "confusion_matrix": [
+            [
+                1035,
+                0
+            ],
+            [
+                374,
+                0
+            ]
+        ]
+    }
+]
